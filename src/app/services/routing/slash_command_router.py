@@ -110,7 +110,7 @@ class SlashCommandRouter:
             (slash_of("roles"), lambda target: self._actions.community.show_assignable_roles(target, channel, area), "用法: /roles 用户名"),
             (slash_of("search"), lambda keyword: self._actions.community.search_members(keyword, channel, area, user), "用法: /search 关键词"),
             (slash_of("help"), lambda topic: self._actions.interaction.show_help(channel, area, user, topic), "用法: /help 音乐"),
-            (slash_of("enter"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: /enter 频道ID"),
+            (slash_of("enter"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: /enter 房间名或频道ID"),
             (slash_of("songsearch"), lambda keyword: self._services.interaction.music.search_candidates(keyword, channel, area, user), "用法: /songsearch 关键词"),
             (slash_of("pick"), lambda raw: self._actions.interaction.handle_pick(raw, channel, area, user, "用法: /pick <编号>"), "用法: /pick <编号>"),
         )

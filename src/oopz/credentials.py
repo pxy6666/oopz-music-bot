@@ -117,6 +117,44 @@ async def persist_credentials(
     return await asyncio.to_thread(save_credentials, credentials)
 
 
+def save_login_account(phone: str, password: str = "") -> list[str]:
+    """把手机号和密码写进 config.py，供下次启动续期。密码为空时不覆盖已有密码。"""
+    phone = str(phone or "").strip()
+    password = str(password or "")
+    if not phone:
+        raise OopzPasswordLoginError("手机号不能为空")
+    if any(char in password for char in '"\r\n'):
+        raise OopzPasswordLoginError("密码里不能包含引号或换行")
+
+    content = _read_config_template()
+    content, phone_saved = _replace_config_value(content, "login_phone", phone)
+    if not phone_saved:
+        raise OopzPasswordLoginError("未能在 config.py 中定位 login_phone")
+    if password:
+        content, password_saved = _replace_config_value(content, "login_password", password)
+        if not password_saved:
+            raise OopzPasswordLoginError("未能在 config.py 中定位 login_password")
+
+    with config_file_write_lock():
+        replace_text_files_atomically(((CONFIG_PATH, content),))
+
+    for module_name in ("config", "web.web_player_config"):
+        try:
+            module = importlib.import_module(module_name)
+            target = getattr(module, "OOPZ_CONFIG", None)
+            if isinstance(target, dict):
+                target["login_phone"] = phone
+                if password:
+                    target["login_password"] = password
+        except Exception:
+            continue
+    return ["config.py"]
+
+
+async def persist_login_account(phone: str, password: str = "") -> list[str]:
+    return await asyncio.to_thread(save_login_account, phone, password)
+
+
 def load_private_key_from_pem(pem: str):
     return serialization.load_pem_private_key(
         pem.encode("utf-8"),

@@ -5,6 +5,14 @@
 <h1 align="center">Oopz Bot</h1>
 
 <p align="center">
+  本仓库基于 <a href="https://github.com/tangqingfeng7/Oopzbot">tangqingfeng7/Oopzbot</a> 修改。上游 README 声明为 MIT，本仓库继续按 MIT 发布。来源、依赖协议和不会上传的登录信息见 <a href="来源与协议.md">来源与协议</a>。
+</p>
+
+<p align="center">
+  本地改动见 <a href="使用说明.md">使用说明</a>：本机页面登录，启动不进语音频道，双击频道才进入。网易云和 QQ 音乐也在这一页扫码。QQ 音乐接口随机器人启动，频道里可以用「音源」切换默认音源。
+</p>
+
+<p align="center">
   面向 <a href="https://web.oopz.cn">Oopz</a> 的多功能频道机器人。
   <br />
   支持音乐点播、语音频道播放、频道管理、Web 播放器、管理后台和插件扩展。
@@ -295,4 +303,4 @@ python tools/create_plugin_scaffold.py demo_plugin
 
 ## 许可证
 
-MIT
+MIT。上游来源、依赖协议和凭据不入库的约定见 [来源与协议.md](来源与协议.md)，许可全文见 [LICENSE](LICENSE)。

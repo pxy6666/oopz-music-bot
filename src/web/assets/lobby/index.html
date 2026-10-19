@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OOPZ 登录与进频道</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f1ea;
+      --card: #fffdf8;
+      --ink: #1d1a16;
+      --muted: #6d655c;
+      --line: #e4dcd0;
+      --accent: #0f6b4c;
+      --accent-ink: #f4fff9;
+      --warn: #8a4b12;
+      --danger: #8d2b2b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .lead { color: var(--muted); margin: 0 0 24px; line-height: 1.6; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    h2 { font-size: 18px; margin: 0 0 12px; }
+    label { display: block; font-size: 14px; margin: 12px 0 6px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-size: 16px;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font-size: 15px;
+      cursor: pointer;
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .msg { min-height: 1.4em; margin-top: 12px; line-height: 1.5; }
+    .msg.error { color: var(--danger); }
+    .msg.ok { color: var(--accent); }
+    .status { color: var(--muted); font-size: 14px; }
+    .area { margin-top: 18px; }
+    .area h3 { margin: 0 0 8px; font-size: 16px; }
+    .channel {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      background: #fff;
+    }
+    .channel:hover, .channel:focus { border-color: var(--accent); outline: none; }
+    .channel.current { background: #e7f6ef; border-color: var(--accent); }
+    .channel small { color: var(--muted); }
+    .empty { color: var(--muted); }
+    .hint { color: var(--warn); font-size: 14px; line-height: 1.5; }
+    .music-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .music-card h3 { margin: 0 0 8px; font-size: 16px; }
+    .qr-image { width: 180px; height: 180px; background: #fff; border: 1px solid var(--line); }
+    @media (max-width: 700px) { .music-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>OOPZ 登录与进频道</h1>
+    <p class="lead">启动后不会进入任何语音频道。登录成功后，在下面的语音频道上双击，机器人才会进去。</p>
+
+    <section>
+      <h2>登录</h2>
+      <p class="status" id="accountStatus">正在检查登录状态…</p>
+      <label for="phone">手机号</label>
+      <input id="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="手机号" />
+      <label for="password">密码</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="只发短信验证码时可以留空" />
+      <div class="row">
+        <button id="loginBtn" type="button">登录</button>
+        <button id="refreshBtn" class="ghost" type="button">刷新频道</button>
+        <button id="leaveBtn" class="ghost" type="button">离开当前频道</button>
+      </div>
+      <p class="hint">需要验证码时会弹出浏览器。请在那个窗口里输入验证码或改用短信登录，窗口最多等 5 分钟。密码错误不会弹窗。</p>
+      <p class="msg" id="loginMsg"></p>
+    </section>
+
+    <section>
+      <h2>音乐账号</h2>
+      <p class="hint">用手机扫这里的二维码。页面会自己询问是否扫好，并保存登录 Cookie。不要另开检查地址，那样会显示二维码已过期。</p>
+      <div class="music-grid">
+        <article class="music-card">
+          <h3>网易云</h3>
+          <p class="status" id="neteaseStatus">正在检查…</p>
+          <button type="button" id="neteaseQrBtn">显示二维码</button>
+          <div id="neteaseQr"></div>
+        </article>
+        <article class="music-card">
+          <h3>QQ 音乐</h3>
+          <p class="status" id="qqStatus">正在检查…</p>
+          <button type="button" id="qqQrBtn">显示二维码</button>
+          <div id="qqQr"></div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>语音频道</h2>
+      <p class="status" id="voiceStatus">当前没有进入语音频道。</p>
+      <div id="channelList" class="empty">登录并连上之后，这里会列出语音频道。</div>
+    </section>
+  </main>
+  <script>
+    const loginBtn = document.getElementById("loginBtn");
+    const loginMsg = document.getElementById("loginMsg");
+    const accountStatus = document.getElementById("accountStatus");
+    const voiceStatus = document.getElementById("voiceStatus");
+    const channelList = document.getElementById("channelList");
+    let current = { area: "", channel: "" };
+
+    function setMessage(text, kind) {
+      loginMsg.textContent = text || "";
+      loginMsg.className = "msg" + (kind ? " " + kind : "");
+    }
+
+    async function readJson(response) {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || ("请求失败 " + response.status));
+      }
+      return data;
+    }
+
+    function describeVoice(areas) {
+      if (!current.channel) {
+        voiceStatus.textContent = "当前没有进入语音频道。双击下面的频道进入。";
+        return;
+      }
+      let name = current.channel;
+      for (const area of areas || []) {
+        for (const channel of area.channels || []) {
+          if (channel.id === current.channel && channel.area_id === current.area) {
+            name = area.name + " / " + channel.name;
+          }
+        }
+      }
+      voiceStatus.textContent = "当前语音频道：" + name;
+    }
+
+    function renderChannels(areas) {
+      channelList.className = "";
+      channelList.innerHTML = "";
+      const rows = [];
+      for (const area of areas || []) {
+        if (!area.channels || !area.channels.length) continue;
+        const block = document.createElement("div");
+        block.className = "area";
+        const title = document.createElement("h3");
+        title.textContent = area.name || area.id;
+        block.appendChild(title);
+        for (const channel of area.channels) {
+          const row = document.createElement("div");
+          row.className = "channel";
+          row.tabIndex = 0;
+          row.dataset.area = channel.area_id;
+          row.dataset.channel = channel.id;
+          if (channel.area_id === current.area && channel.id === current.channel) {
+            row.classList.add("current");
+          }
+          const label = document.createElement("div");
+          label.textContent = channel.name;
+          const meta = document.createElement("small");
+          meta.textContent = channel.group ? channel.group + " · 双击进入" : "双击进入";
+          row.append(label, meta);
+          row.addEventListener("dblclick", () => join(channel.area_id, channel.id, channel.name));
+          block.appendChild(row);
+          rows.push(row);
+        }
+        channelList.appendChild(block);
+      }
+      if (!rows.length) {
+        channelList.className = "empty";
+        channelList.textContent = "还没有可进入的语音频道。确认这个账号已经加入域，然后点刷新。";
+      }
+      describeVoice(areas);
+    }
+
+    async function refreshStatus() {
+      const data = await readJson(await fetch("/lobby/api/status", { cache: "no-store" }));
+      current = data.voice || current;
+      if (data.connected) {
+        accountStatus.textContent = data.phone
+          ? "已连接。本机保存的手机号：" + data.phone
+          : "已连接。";
+      } else if (data.has_credentials) {
+        accountStatus.textContent = "本机有登录凭据，但还没连上。可以再登录一次。";
+      } else {
+        accountStatus.textContent = "还没有登录。";
+      }
+      return data;
+    }
+
+    async function refreshChannels() {
+      const data = await readJson(await fetch("/lobby/api/channels", { cache: "no-store" }));
+      current = data.voice || { area: "", channel: "" };
+      renderChannels(data.areas || []);
+    }
+
+    async function refreshAll() {
+      try {
+        await refreshStatus();
+        await refreshChannels();
+      } catch (error) {
+        setMessage(error.message, "error");
+      }
+    }
+
+    async function join(area, channel, name) {
+      setMessage("正在进入「" + name + "」…", "");
+      try {
+        const data = await readJson(await fetch("/lobby/api/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ area, channel }),
+        }));
+        setMessage(data.message || "已进入", "ok");
+        await refreshAll();
+      } catch (error) {
+        setMessage(error.message, "error");
+      }
+    }
+
+    loginBtn.addEventListener("click", async () => {
+      const phone = document.getElementById("phone").value.trim();
+      const password = document.getElementById("password").value;
+      if (!phone) {
+        setMessage("请填写手机号", "error");
+        return;
+      }
+      loginBtn.disabled = true;
+      setMessage(password
+        ? "正在登录。如果弹出浏览器，请在里面完成验证码。"
+        : "已打开登录窗口。请在浏览器里用短信验证码登录。", "");
+      try {
+        const data = await readJson(await fetch("/lobby/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, password }),
+        }));
+        setMessage(data.message || "登录成功", "ok");
+        document.getElementById("password").value = "";
+        await refreshAll();
+      } catch (error) {
+        setMessage(error.message, "error");
+      } finally {
+        loginBtn.disabled = false;
+      }
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+    document.getElementById("leaveBtn").addEventListener("click", async () => {
+      try {
+        const data = await readJson(await fetch("/lobby/api/leave", { method: "POST" }));
+        setMessage(data.message || "已离开", "ok");
+        await refreshAll();
+      } catch (error) {
+        setMessage(error.message, "error");
+      }
+    });
+
+    const musicPollers = {};
+    const musicTries = {};
+
+    function musicLabel(platform, data) {
+      const node = document.getElementById(platform + "Status");
+      if (!node) return;
+      if (data.logged_in) {
+        node.textContent = data.nickname ? ("已登录：" + data.nickname) : "已登录";
+        return;
+      }
+      node.textContent = "未登录";
+    }
+
+    async function refreshMusic() {
+      try {
+        const data = await readJson(await fetch("/lobby/api/music", { cache: "no-store" }));
+        musicLabel("netease", data.netease || {});
+        musicLabel("qq", data.qq || {});
+      } catch (error) {
+        musicLabel("netease", {});
+        musicLabel("qq", {});
+      }
+    }
+
+    function stopMusicPoll(platform) {
+      if (musicPollers[platform]) {
+        clearInterval(musicPollers[platform]);
+        delete musicPollers[platform];
+      }
+    }
+
+    async function pollMusic(platform) {
+      const statusNode = document.getElementById(platform + "Status");
+      try {
+        const data = await readJson(await fetch("/lobby/api/music/qr?platform=" + platform, { cache: "no-store" }));
+        musicTries[platform] = (musicTries[platform] || 0) + 1;
+        if (data.status === "waiting") {
+          statusNode.textContent = "等待扫码（已检查 " + musicTries[platform] + " 次）";
+        }
+        if (data.status === "scanned") statusNode.textContent = "已扫码，请在手机上确认";
+        if (data.status === "confirmed") {
+          stopMusicPoll(platform);
+          statusNode.textContent = data.message || "登录成功";
+          await refreshMusic();
+        }
+        if (data.status === "expired") {
+          stopMusicPoll(platform);
+          statusNode.textContent = data.message || "二维码已过期，请重新显示";
+        }
+      } catch (error) {
+        stopMusicPoll(platform);
+        statusNode.textContent = error.message;
+      }
+    }
+
+    async function startMusicQr(platform) {
+      const statusNode = document.getElementById(platform + "Status");
+      const box = document.getElementById(platform + "Qr");
+      stopMusicPoll(platform);
+      musicTries[platform] = 0;
+      statusNode.textContent = "正在生成新的二维码…";
+      box.replaceChildren();
+      try {
+        const data = await readJson(await fetch("/lobby/api/music/qr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform }),
+        }));
+        const image = document.createElement("img");
+        image.className = "qr-image";
+        image.alt = "登录二维码";
+        image.src = data.image;
+        box.appendChild(image);
+        statusNode.textContent = "等待扫码";
+        musicPollers[platform] = setInterval(() => pollMusic(platform), 2000);
+      } catch (error) {
+        statusNode.textContent = error.message;
+      }
+    }
+
+    document.getElementById("neteaseQrBtn").addEventListener("click", () => startMusicQr("netease"));
+    document.getElementById("qqQrBtn").addEventListener("click", () => startMusicQr("qq"));
+
+    refreshAll();
+    refreshMusic();
+  </script>
+</body>
+</html>

@@ -41,6 +41,17 @@ def _resolved_target(path: PathLike) -> Path:
     return Path(os.path.realpath(os.fspath(path)))
 
 
+def _restrict_file_mode(fd: int, mode: int) -> None:
+    """把临时文件收成仅本人可读写。Windows 没有 os.fchmod，跳过即可。
+
+    不要改用 os.chmod(0o600)：在 Windows 上那会清掉写权限，后面的写入会失败。
+    """
+    fchmod = getattr(os, "fchmod", None)
+    if fchmod is None:
+        return
+    fchmod(fd, mode)
+
+
 def _write_unique_sibling(
     target: Path,
     data: bytes,
@@ -55,7 +66,7 @@ def _write_unique_sibling(
     )
     temp_path = Path(raw_path)
     try:
-        os.fchmod(fd, mode)
+        _restrict_file_mode(fd, mode)
         with os.fdopen(fd, "wb") as file:
             file.write(data)
             file.flush()

@@ -7,6 +7,7 @@ import asyncio
 from app.lifecycle.background_services import BackgroundServiceRunner
 from app.lifecycle.context import AppContext
 from app.lifecycle.netease_api_runtime import NeteaseApiRuntime
+from app.lifecycle.qq_api_runtime import QqApiRuntime
 from app.lifecycle.task_supervisor import TaskSupervisor
 from core.logger_config import setup_logger
 
@@ -25,6 +26,7 @@ class ShutdownCoordinator:
         self,
         context: AppContext | None,
         netease_runtime: NeteaseApiRuntime,
+        qq_runtime: QqApiRuntime | None = None,
         background_services: BackgroundServiceRunner | None = None,
         supervisor: TaskSupervisor | None = None,
     ) -> None:
@@ -38,6 +40,7 @@ class ShutdownCoordinator:
                 self._stop_in_order(
                     context,
                     netease_runtime,
+                    qq_runtime,
                     background_services,
                     supervisor,
                 ),
@@ -50,6 +53,7 @@ class ShutdownCoordinator:
         self,
         context: AppContext | None,
         netease_runtime: NeteaseApiRuntime,
+        qq_runtime: QqApiRuntime | None,
         background_services: BackgroundServiceRunner | None,
         supervisor: TaskSupervisor | None,
     ) -> None:
@@ -114,6 +118,8 @@ class ShutdownCoordinator:
             MessageStatsDB.stop(remaining(3.0)),
         )
         await attempt("网易云 API", netease_runtime.stop(timeout=remaining(5.0)))
+        if qq_runtime is not None:
+            await attempt("QQ 音乐 API", qq_runtime.stop(timeout=remaining(5.0)))
 
         effective_supervisor = supervisor or (context.supervisor if context else None)
         if effective_supervisor is not None:

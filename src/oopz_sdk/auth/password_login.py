@@ -601,12 +601,21 @@ async def login_with_playwright_password(
     chromium_executable_path: str | os.PathLike[str] | None = None,
     proxy: ProxyConfig | Mapping[str, Any] | str | None = None,
     extra_browser_args: list[str] | tuple[str, ...] | None = None,
+    manual_challenge: bool = False,
+    submit_form: bool = True,
 ) -> OopzLoginCredentials:
-    """通过 Chromium 自动登录 OOPZ，并返回 SDK 可直接使用的凭据。"""
+    """通过 Chromium 登录 OOPZ，并返回 SDK 可直接使用的凭据。
+
+    ``manual_challenge=True`` 时，第一次登录响应如果是验证码或风控，不会关掉窗口。
+    浏览器会一直开到凭据抓全，或到达 ``timeout``。``submit_form=False`` 时不自动填写、
+    也不点击登录，留给短信验证码登录。
+    """
     phone = str(phone or "").strip()
     password = str(password or "")
-    if not phone or not password:
+    if submit_form and (not phone or not password):
         raise OopzPasswordLoginError("账号和密码不能为空")
+    if not submit_form and not phone:
+        raise OopzPasswordLoginError("手机号不能为空")
 
     try:
         from playwright.async_api import async_playwright
@@ -638,7 +647,9 @@ async def login_with_playwright_password(
             login_error["message"] = _safe_response_error(payload)
             login_error["code"] = _extract_error_code(payload)
             login_error["payload"] = payload
-            login_done.set()
+            # 验证码登录要留着窗口让人输入。第一次失败只记下来，不结束等待。
+            if not manual_challenge:
+                login_done.set()
             return
         data = payload.get("data") or {}
         if isinstance(data, dict):
@@ -723,14 +734,20 @@ async def login_with_playwright_password(
 
                 await _open_clean_login_page(context, page)
                 await page.wait_for_timeout(6500)
-                await _fill_password_login(page, phone, password)
+                if submit_form:
+                    await _fill_password_login(page, phone, password)
 
                 try:
                     await asyncio.wait_for(login_done.wait(), timeout=timeout)
                 except asyncio.TimeoutError as exc:
+                    if manual_challenge:
+                        detail = str(login_error.get("message") or "登录未完成")
+                        raise OopzPasswordLoginError(
+                            f"等待你在浏览器里完成验证超时：{detail}"
+                        ) from exc
                     raise OopzPasswordLoginError("等待 OOPZ 登录响应超时") from exc
 
-                if login_error.get("message"):
+                if login_error.get("message") and not _credentials_complete(credentials):
                     raise OopzPasswordLoginError(
                         login_error["message"],
                         code=login_error.get("code"),

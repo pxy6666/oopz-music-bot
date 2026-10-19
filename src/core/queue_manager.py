@@ -522,6 +522,13 @@ class QueueManager:
     # 队列操作
     # ------------------------------------------------------------------
 
+    async def push_front(self, song_data: dict) -> None:
+        """插到队列最前，用来让新加的歌排在原来还没播的歌前面。"""
+        await (await self.client()).lpush(
+            self._qkey(),
+            json.dumps(song_data, ensure_ascii=False),
+        )
+
     async def add_to_queue(self, song_data: dict) -> int:
         """添加歌曲到队列尾部，返回队列中的位置（0-based）"""
         r = await self.client()

@@ -51,6 +51,32 @@ class SdkVoiceController:
     def available(self) -> bool:
         return not self._closed
 
+    async def rebind(self, voice_service) -> None:
+        """登录热更新换了 SDK 会话后，把推流指到新的语音服务，并重新预热浏览器。"""
+        old = self._voice
+        self._voice = voice_service
+        self._closed = False
+        self._playing = False
+        self._warmup_started = True
+        self._warmup_done = asyncio.Event()
+        close = getattr(old, "close", None)
+        if close is not None and old is not voice_service:
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.debug("关闭旧语音浏览器失败: %s", exc)
+        asyncio.create_task(self._start_bound_voice(), name="voice-browser-rebind")
+
+    async def _start_bound_voice(self) -> None:
+        try:
+            await self._voice.start()
+        except Exception as exc:
+            logger.warning("重新登录后预热语音浏览器失败: %s", exc)
+        finally:
+            self._warmup_done.set()
+
     async def warmup(self) -> None:
         if self._closed:
             return

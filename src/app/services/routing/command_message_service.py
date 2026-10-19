@@ -16,6 +16,7 @@ class MessageContext:
     user: str
     message_id: str
     timestamp: str
+    private_reply_uid: str = ""
 
     @classmethod
     def from_message(cls, msg_data: dict) -> "MessageContext":
@@ -27,6 +28,7 @@ class MessageContext:
             user=msg_data.get("person") or "",
             message_id=msg_data.get("messageId") or "",
             timestamp=msg_data.get("timestamp") or "",
+            private_reply_uid=str(msg_data.get("private_reply_uid") or ""),
         )
 
     def is_slash_command(self) -> bool:

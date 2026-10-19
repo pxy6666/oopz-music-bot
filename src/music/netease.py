@@ -248,7 +248,7 @@ class NeteaseCloud:
         return results
 
     async def get_song_url(self, song_id: int, expected_duration_ms: int = 0, song_name: str = "") -> str | None:
-        """获取歌曲播放 URL。level 可选 standard(体积小/弱网友好) 或 exhigh(音质更好)。
+        """获取歌曲播放 URL。level 用配置里的 audio_quality：standard 体积小，exhigh 约 320kbps。
 
         实测 NeteaseCloudMusicApi 本地服务存在缓存错乱 bug：
         请求 id=A 有时会返回上一次 id=B 的 URL（响应里的 id 字段会暴露这一点）。
@@ -592,6 +592,37 @@ class NeteaseCloud:
         """获取歌曲翻译歌词，无翻译返回 None。"""
         _, tlyric = await self.get_lyrics(song_id)
         return tlyric
+
+    async def search_playlist(self, keyword: str) -> dict | None:
+        """按名字取第一条歌单。"""
+        data = await self._get("/cloudsearch", params={"keywords": keyword, "type": 1000, "limit": 1})
+        playlists = (data or {}).get("result", {}).get("playlists") or []
+        if not playlists:
+            return None
+        item = playlists[0]
+        return {"id": str(item.get("id") or ""), "name": item.get("name") or keyword}
+
+    async def search_album(self, keyword: str) -> dict | None:
+        """按名字取第一张专辑。"""
+        data = await self._get("/cloudsearch", params={"keywords": keyword, "type": 10, "limit": 1})
+        albums = (data or {}).get("result", {}).get("albums") or []
+        if not albums:
+            return None
+        item = albums[0]
+        return {"id": str(item.get("id") or ""), "name": item.get("name") or keyword}
+
+    async def get_playlist_songs(self, playlist_id: str, limit: int = 1000) -> list[dict]:
+        data = await self._get(
+            "/playlist/track/all",
+            params={"id": playlist_id, "limit": limit, "offset": 0, "timestamp": int(time.time() * 1000)},
+        )
+        songs = (data or {}).get("songs") or []
+        return [parsed for song in songs if (parsed := self._parse_song(song))]
+
+    async def get_album_songs(self, album_id: str) -> list[dict]:
+        data = await self._get("/album", params={"id": album_id, "timestamp": int(time.time() * 1000)})
+        songs = (data or {}).get("songs") or []
+        return [parsed for song in songs if (parsed := self._parse_song(song))]
 
     async def close(self) -> None:
         await self._http.close()

@@ -1,5 +1,6 @@
 (function () {
   const NAV_ITEMS = [
+    { key: "lobby", href: "/lobby", label: "进频道" },
     { key: "dashboard", href: "/admin", label: "总览" },
     { key: "music", href: "/admin/music", label: "音乐" },
     { key: "config", href: "/admin/config", label: "配置" },

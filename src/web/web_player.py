@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 import uvicorn
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import web.web_player_config as cfg
@@ -99,6 +99,10 @@ _VALID_PLAY_MODES = {
     PLAY_MODE_SINGLE,
     PLAY_MODE_SHUFFLE,
     PLAY_MODE_STOP,
+    "seq",
+    "loop",
+    "random",
+    "rloop",
 }
 
 
@@ -226,6 +230,10 @@ def get_plugin_runtime():
 
 def get_plugin_host():
     return _plugin_host
+
+
+def get_music():
+    return _music_dependency
 
 
 def register_runtime_dependencies(*, music=None, plugins=None, plugin_host=None) -> None:
@@ -772,9 +780,9 @@ async def health_check(request: Request):
     )
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def index():
-    return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
+    return RedirectResponse(url="/lobby", status_code=302)
 
 
 @app.get("/w/{token}", response_class=HTMLResponse)
@@ -814,8 +822,10 @@ async def index_with_token(token: str, request: Request):
 # ---------------------------------------------------------------------------
 
 from web.web_player_admin import admin_router  # noqa: E402
+from web.lobby import router as lobby_router  # noqa: E402
 
 app.include_router(admin_router)
+app.include_router(lobby_router)
 
 
 # ---------------------------------------------------------------------------
@@ -825,8 +835,7 @@ app.include_router(admin_router)
 def run_server(host: str | None = None, port: int | None = None) -> None:
     host = host or cfg.web_host()
     port = port or cfg.web_port()
-    display = f"[{host}]" if ":" in host else host
-    logger.info(f"Web 播放器启动: http://{display}:{port}")
+    logger.info("登录和进频道页面: %s/lobby", cfg.display_web_base_url())
     uvicorn.run(
         app,
         host=host,

@@ -56,7 +56,9 @@ class BackgroundServiceRunner:
         web_port = web_cfg.web_port()
         self._web_player = WebPlayerService(host=web_host, port=web_port)
         await self._web_player.start()
-        logger.info("Web 播放器已启动: http://%s:%s", web_host, web_port)
+        logger.info("登录和进频道页面: %s/lobby", web_cfg.display_web_base_url())
+        logger.info("请用 127.0.0.1 打开。0.0.0.0 只是监听地址，浏览器访问会得到 502。")
+        logger.info("启动不会进入语音频道，请在该页面双击频道。")
 
     async def _warmup_members_cache(self, sender) -> None:
         try:

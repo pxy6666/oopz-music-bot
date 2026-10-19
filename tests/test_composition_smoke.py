@@ -42,6 +42,7 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             patch.object(bootstrap_module, "AppContextBuilder") as context_cls,
             patch.object(bootstrap_module, "BackgroundServiceRunner") as background_cls,
             patch.object(bootstrap_module, "NeteaseApiRuntime") as netease_cls,
+            patch.object(bootstrap_module, "QqApiRuntime") as qq_cls,
             patch.object(bootstrap_module, "ShutdownCoordinator") as shutdown_cls,
             patch.object(bootstrap_module, "TaskSupervisor") as supervisor_cls,
         ):
@@ -49,6 +50,8 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             startup.build = AsyncMock()
             netease = netease_cls.return_value
             netease.start = AsyncMock()
+            qq = qq_cls.return_value
+            qq.start = AsyncMock()
             background = background_cls.return_value
             background.start = AsyncMock()
             shutdown = shutdown_cls.return_value
@@ -68,7 +71,7 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             netease.start.assert_awaited_once_with()
             context_cls.return_value.build.assert_awaited_once_with(supervisor)
             background.start.assert_awaited_once_with(context)
-            shutdown.stop.assert_awaited_once_with(context, netease, background, supervisor)
+            shutdown.stop.assert_awaited_once_with(context, netease, qq, background, supervisor)
 
     async def test_supervisor_failure_propagates_and_still_shuts_down(self) -> None:
         """后台任务崩了要把异常抛给调用方，但关停链路仍必须走完。"""
@@ -80,11 +83,13 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             patch.object(bootstrap_module, "AppContextBuilder") as context_cls,
             patch.object(bootstrap_module, "BackgroundServiceRunner") as background_cls,
             patch.object(bootstrap_module, "NeteaseApiRuntime") as netease_cls,
+            patch.object(bootstrap_module, "QqApiRuntime") as qq_cls,
             patch.object(bootstrap_module, "ShutdownCoordinator") as shutdown_cls,
             patch.object(bootstrap_module, "TaskSupervisor") as supervisor_cls,
         ):
             startup_cls.return_value.build = AsyncMock()
             netease_cls.return_value.start = AsyncMock()
+            qq_cls.return_value.start = AsyncMock()
             background_cls.return_value.start = AsyncMock()
             shutdown_cls.return_value.stop = AsyncMock()
             context_cls.return_value.build = AsyncMock(return_value=Mock())
@@ -151,6 +156,7 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             patch.object(bootstrap_module, "AppContextBuilder"),
             patch.object(bootstrap_module, "BackgroundServiceRunner") as background_cls,
             patch.object(bootstrap_module, "NeteaseApiRuntime") as netease_cls,
+            patch.object(bootstrap_module, "QqApiRuntime") as qq_cls,
             patch.object(bootstrap_module, "ShutdownCoordinator") as shutdown_cls,
             patch.object(bootstrap_module, "TaskSupervisor") as supervisor_cls,
         ):
@@ -165,6 +171,7 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             shutdown_cls.return_value.stop.assert_awaited_once_with(
                 context,
                 netease_cls.return_value,
+                qq_cls.return_value,
                 background_cls.return_value,
                 supervisor_cls.return_value,
             )

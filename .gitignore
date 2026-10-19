@@ -18,6 +18,7 @@ config/plugins/*.json
 config/plugins/*/config.json
 data/credentials.txt
 .oopz_capture_credentials
+.oopz_login_profile
 capture_recall_result.json
 capture_trace.zip
 .env
@@ -64,6 +65,9 @@ logs/
 NeteaseAPI_tmp/
 NeteaseAPI_tmp.zip
 NeteaseCloudMusicApi/
+qq-music-api/node_modules/
+qq-music-api/start-test.out
+qq-music-api/start-test.err
 Webintosh/
 
 # === 系统文件 ===

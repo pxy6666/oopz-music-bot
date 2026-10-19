@@ -18,6 +18,77 @@ logger = get_logger("AppContext")
 
 
 class AppContextBuilder:
+    @staticmethod
+    async def _note_voice_dropped(handler: CommandHandler) -> None:
+        note = getattr(handler.infrastructure.music, "note_connection_lost", None)
+        if callable(note):
+            note()
+
+    @staticmethod
+    async def _dispatch_private_command(gateway: AsyncOopzGateway, handler: CommandHandler | None, message: dict) -> None:
+        """私信里的播放、进房等命令走和频道一样的处理，回复发回私信。"""
+        if handler is None:
+            return
+        from config import OOPZ_CONFIG
+        from core.constants import build_mention
+        from domain.routing.private_command import looks_like_private_command
+
+        content = str(message.get("content") or "")
+        bot_uid = str(OOPZ_CONFIG.get("person_uid") or "")
+        mention = build_mention(bot_uid) if bot_uid else ""
+        if not looks_like_private_command(content, mention):
+            return
+        payload = dict(message)
+        payload["private_reply_uid"] = str(message.get("person") or "")
+        if not str(payload.get("area") or "").strip():
+            payload["area"] = await AppContextBuilder._private_command_area(
+                gateway, payload["private_reply_uid"]
+            )
+        payload["channel"] = str(OOPZ_CONFIG.get("default_channel") or "")
+        if not payload["channel"] and payload.get("area"):
+            payload["channel"] = await AppContextBuilder._first_text_channel(gateway, payload["area"])
+        await handler.handle_message(payload)
+
+    @staticmethod
+    async def _first_text_channel(gateway: AsyncOopzGateway, area: str) -> str:
+        from web.lobby_rules import is_voice_channel
+
+        try:
+            groups = await gateway.get_area_channels(area=area, quiet=True)
+        except Exception:
+            return ""
+        for group in groups or []:
+            if not isinstance(group, dict):
+                continue
+            for channel in group.get("channels") or []:
+                if not isinstance(channel, dict):
+                    continue
+                if is_voice_channel(str(channel.get("type") or "")):
+                    continue
+                channel_id = str(channel.get("id") or "").strip()
+                if channel_id:
+                    return channel_id
+        return ""
+
+    @staticmethod
+    async def _private_command_area(gateway: AsyncOopzGateway, uid: str) -> str:
+        from config import OOPZ_CONFIG
+
+        try:
+            areas = await gateway.get_joined_areas(quiet=True)
+        except Exception:
+            areas = []
+        for item in areas or []:
+            if not isinstance(item, dict):
+                continue
+            area_id = str(item.get("id") or item.get("area") or "").strip()
+            if not area_id or not uid:
+                continue
+            voice = await gateway.get_voice_channel_for_user(uid, area=area_id)
+            if voice:
+                return area_id
+        return str(OOPZ_CONFIG.get("default_area") or "")
+
     """在当前事件循环组装 SDK 网关、命令分发和补充服务。"""
 
     async def build(self, supervisor: TaskSupervisor) -> AppContext:
@@ -53,6 +124,7 @@ class AppContextBuilder:
 
             async def handle() -> None:
                 await capture_private_area_invites(current, message)
+                await self._dispatch_private_command(current, handler, message)
 
             sender_id = str(message.get("person") or "")
             dispatcher.submit(f"__private_invite__:{sender_id}", handle)
@@ -85,6 +157,9 @@ class AppContextBuilder:
             )
             await gateway.start(supervisor)
             await gateway.populate_names()
+            register_reconnect = gateway.bot.on("reconnect")
+            if callable(register_reconnect):
+                register_reconnect(lambda _ctx: self._note_voice_dropped(handler))
 
             onebot_adapter = find_sdk_onebot_v11(gateway.bot)
             onebot_v11 = (

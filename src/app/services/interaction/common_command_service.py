@@ -46,8 +46,20 @@ class CommonCommandService:
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     async def enter_channel(self, channel_id: str, channel: str, area: str) -> None:
-        """进入指定频道。"""
+        """按房间名或频道 ID 进入语音频道。"""
+        from web.lobby_rules import voice_rows_from_groups
+        from domain.routing.voice_channel_match import match_voice_channel
+
         resolver = get_resolver()
+        query = str(channel_id or "").strip()
+        groups = await self._sender.get_area_channels(area=area, quiet=True)
+        rows = voice_rows_from_groups(area, resolver.area(area), groups if isinstance(groups, list) else [])
+        matched, error = match_voice_channel(rows, query)
+        if matched is None and rows:
+            await self._sender.send_message(error, channel=channel, area=area)
+            return
+        if matched is not None:
+            channel_id = str(matched["id"])
         channel_name = resolver.channel(channel_id)
         data = await self._music.enter_voice_channel(channel_id, area)
         if "error" in data:

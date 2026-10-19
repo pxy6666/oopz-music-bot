@@ -2,6 +2,7 @@ from .background_services import BackgroundServiceRunner
 from .context import AppContext
 from .context_builder import AppContextBuilder
 from .netease_api_runtime import NeteaseApiRuntime
+from .qq_api_runtime import QqApiRuntime
 from .shutdown_coordinator import ShutdownCoordinator
 from .startup_resources import StartupResourceBuilder, StartupResources
 from .task_supervisor import TaskSupervisor
@@ -11,6 +12,7 @@ __all__ = [
     "AppContextBuilder",
     "BackgroundServiceRunner",
     "NeteaseApiRuntime",
+    "QqApiRuntime",
     "ShutdownCoordinator",
     "StartupResourceBuilder",
     "StartupResources",

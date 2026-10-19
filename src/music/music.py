@@ -31,6 +31,18 @@ from domain.playback import (
     PlaybackSessionSnapshot,
     WebCommandDecodeError,
 )
+from domain.playback.collection_ref import collection_ref
+from domain.playback.modes import (
+    PLAY_MODE_LOOP,
+    PLAY_MODE_RANDOM,
+    PLAY_MODE_RLOOP,
+    PLAY_MODE_SEQ,
+    mode_label,
+    parse_play_mode,
+    parse_source,
+    shuffles_new_batch,
+    source_label,
+)
 from music.music_platform import PlatformRegistry
 from music.music_playback import (
     PlaybackMixin,
@@ -64,7 +76,12 @@ _VALID_PLAY_MODES = {
     PLAY_MODE_SINGLE,
     PLAY_MODE_SHUFFLE,
     PLAY_MODE_STOP,
+    PLAY_MODE_SEQ,
+    PLAY_MODE_LOOP,
+    PLAY_MODE_RANDOM,
+    PLAY_MODE_RLOOP,
 }
+_COLLECTION_LIMIT = 1000
 
 
 class _NeteaseSongUrlProvider(Protocol):
@@ -143,6 +160,11 @@ class MusicHandler(PlaybackMixin):
         self._voice_channel_id: str | None = None
         self._voice_channel_area: str | None = None
         self._voice_enter_time: float = 0
+        self._voice_rejoin_suppressed: bool = False
+        self._voice_rejoin_attempt: int = 0
+        self._voice_rejoin_not_before: float = 0
+        self._force_voice_check: bool = False
+        self._hold_queue: bool = False
         self._playlist_idle_since: float = 0
         self._web_link_released_due_to_idle: bool = False
         self._web_control = WebControlExecutor(self)
@@ -248,7 +270,7 @@ class MusicHandler(PlaybackMixin):
         try:
             from music.qq_music import QQMusic
             qq = QQMusic()
-            if qq.enabled:
+            if qq.base_url:
                 self.platforms.register(qq)
                 logger.info("QQ 音乐平台已注册")
         except Exception as e:
@@ -367,6 +389,7 @@ class MusicHandler(PlaybackMixin):
                 return {"error": str(exc)}
             self._voice_channel_id = voice_channel_id
             self._voice_channel_area = area
+            self._voice_rejoin_suppressed = False
             self._playback_generation += 1
             self._voice_enter_time = time.time()
             await self._restore_volume_from_redis()
@@ -420,6 +443,13 @@ class MusicHandler(PlaybackMixin):
             )
             return False
         return True
+
+    def current_voice_channel(self) -> tuple[str, str]:
+        """当前语音频道，返回 (域 ID, 频道 ID)。启动后这里是空的，直到有人让机器人进入。"""
+        return str(self._voice_channel_area or ""), str(self._voice_channel_id or "")
+
+    async def leave_voice_channel(self) -> None:
+        await self._leave_current_voice_channel()
 
     async def enter_voice_channel(self, voice_channel_id: str, area: str) -> dict:
         if not self.voice or not self.voice.available:
@@ -522,7 +552,7 @@ class MusicHandler(PlaybackMixin):
 
     async def search_candidates(self, keyword: str, platform: str = _PLATFORM_NETEASE, limit: int = 5) -> list[dict]:
         """返回歌曲候选列表，用于交互式选择。"""
-        resolved_platform = platform or _PLATFORM_NETEASE
+        resolved_platform = self.resolve_platform(platform)
         p = self.platforms.get(resolved_platform)
         if not p:
             return []
@@ -534,7 +564,7 @@ class MusicHandler(PlaybackMixin):
         netease 平台优先在登录账号"我喜欢的音乐"里搜，命中就用喜欢列表的那一首；
         没命中再退回到全网 cloudsearch。
         """
-        resolved_platform = platform or _PLATFORM_NETEASE
+        resolved_platform = self.resolve_platform(platform)
         p = self.platforms.get(resolved_platform)
         if not p:
             return None
@@ -577,7 +607,7 @@ class MusicHandler(PlaybackMixin):
             "name": data["name"],
             "artists": data["artists"],
             "album": data.get("album", ""),
-            "url": data["url"],
+            "url": data.get("url") or "",
             "cover": data.get("cover"),
             "duration": duration_text,
             "duration_ms": duration_ms,
@@ -651,27 +681,43 @@ class MusicHandler(PlaybackMixin):
         if not await self._check_and_enter_voice_channel(user, channel, area):
             return
         user_name = self.names.user(user) if user else "未知用户"
-        result = await self._commit_song_request(song_data, prefix=f"{user_name} 从搜歌结果中选择了")
+        result = await self._commit_song_request(song_data, prefix=f"{user_name} 从搜歌结果中选择了", how="cut")
         await self.sender.send_message(text=result["message"], attachments=result.get("attachments", []), channel=channel, area=area)
 
     async def play_song(self, keyword: str, platform: str, channel: str, area: str, user: str) -> None:
-        """通用的多平台点歌入口。"""
-        voice_ok, result = await asyncio.gather(
-            self._check_and_enter_voice_channel(user, channel, area),
-            self._prepare_song_request(keyword, channel, area, user, platform=platform),
-        )
-        if result["code"] != "success":
-            await self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
-            return
+        """搜索并立刻改播这一首。后面已经排着的歌留在队列里。"""
+        await self._play_prepared(keyword, platform, channel, area, user, how="cut")
 
+    async def add_song(self, keyword: str, platform: str, channel: str, area: str, user: str) -> None:
+        """加到队列末尾。正在播时不打断；没在播时从这首开始。"""
+        await self._play_prepared(keyword, platform, channel, area, user, how="append")
+
+    async def _play_prepared(
+        self,
+        keyword: str,
+        platform: str,
+        channel: str,
+        area: str,
+        user: str,
+        how: str,
+    ) -> None:
+        prepared = await self._prepare_song_request(keyword, channel, area, user, platform=platform)
+        if prepared["code"] != "success":
+            await self.sender.send_message(f"错误: {prepared['message']}", channel=channel, area=area)
+            return
+        if how == "append" and self._voice_channel_id and await self._is_playing(queue=self._get_queue(area)):
+            voice_ok = True
+        else:
+            voice_ok = await self._check_and_enter_voice_channel(user, channel, area)
         if not voice_ok:
             return
-
-        result = await self._commit_song_request(result["song_data"])
-
-        text = result["message"]
-        attachments = result.get("attachments", [])
-        await self.sender.send_message(text=text, attachments=attachments, channel=channel, area=area)
+        result = await self._commit_song_request(prepared["song_data"], how=how)
+        await self.sender.send_message(
+            text=result["message"],
+            attachments=result.get("attachments", []),
+            channel=channel,
+            area=area,
+        )
 
     async def play_next(self, channel: str, area: str, user: str) -> None:
         """播放队列中的下一首"""
@@ -687,6 +733,7 @@ class MusicHandler(PlaybackMixin):
                 await self.sender.send_message(error, channel=channel, area=area)
                 return
 
+            self._hold_queue = False
             q = self._get_queue(area)
             next_song = await q.play_next()
             if not next_song:
@@ -862,7 +909,7 @@ class MusicHandler(PlaybackMixin):
         await self.sender.send_message(text=first_text, attachments=first_attachments, channel=channel, area=area)
 
     async def stop_play(self, channel: str, area: str) -> None:
-        """停止播放并退出语音频道"""
+        """只停止当前播放。人留在语音频道里，队列也留着，程序继续在线。"""
         async with self._playback_lock:
             session = self._playback_snapshot_locked()
             if session.area is None or session.area.value != str(area or "").strip():
@@ -872,6 +919,7 @@ class MusicHandler(PlaybackMixin):
                     area=area,
                 )
                 return
+            self._hold_queue = True
             self._advance_playback_generation_locked()
             self._play_start_time = 0
             self._play_duration = 0
@@ -883,8 +931,230 @@ class MusicHandler(PlaybackMixin):
                 logger.debug(f"停止播放时清理 play_state 失败: {e}")
             if self.voice and self.voice.available:
                 await self.voice.stop_audio()
+        await self.sender.send_message("已停止播放，机器人还在语音频道里", channel=channel, area=area)
+
+    async def leave_playback(self, channel: str, area: str) -> None:
+        """离开语音频道。程序不退出，也不会自己再进这个房间。"""
+        self._voice_rejoin_suppressed = True
+        self._hold_queue = True
+        async with self._playback_lock:
+            self._advance_playback_generation_locked()
+            self._play_start_time = 0
+            self._play_duration = 0
+            if self.voice and self.voice.available:
+                await self.voice.stop_audio()
             await self._leave_current_voice_channel()
-        await self.sender.send_message("已停止播放，Bot 已退出语音频道", channel=channel, area=area)
+        await self.sender.send_message("已离开语音频道，机器人仍在线", channel=channel, area=area)
+
+    async def _fill_song_url(self, song: dict) -> bool:
+        """队列里只有歌曲编号时，开播前补上播放链接。"""
+        if song.get("url"):
+            return True
+        platform_name = str(song.get("platform") or _PLATFORM_NETEASE)
+        provider = self.platforms.get(platform_name)
+        if provider is None:
+            return False
+        song_id = song.get("song_id")
+        try:
+            if platform_name == _PLATFORM_NETEASE:
+                url = await cast(_NeteaseSongUrlProvider, provider).get_song_url(
+                    int(str(song_id)),
+                    expected_duration_ms=int(song.get("duration_ms") or 0),
+                    song_name=str(song.get("name") or ""),
+                )
+            else:
+                url = await provider.get_song_url(song_id)
+        except Exception:
+            logger.warning("获取播放链接失败: %s", song.get("name"), exc_info=True)
+            return False
+        if not url:
+            return False
+        song["url"] = url
+        return True
+
+    def resolve_platform(self, platform: str = "") -> str:
+        """没写音源前缀时，用当前选定的音源。"""
+        chosen = str(platform or "").strip()
+        if chosen:
+            return chosen
+        try:
+            from web.web_player_config import MUSIC_CONFIG
+
+            chosen = str(MUSIC_CONFIG.get("default_platform") or "netease").strip()
+        except Exception:
+            chosen = "netease"
+        return chosen if chosen in {"netease", "qq", "bilibili"} else "netease"
+
+    async def set_source(self, text: str, channel: str, area: str) -> None:
+        """切换之后不带前缀的点歌、歌单、专辑都走这个音源。"""
+        current = self.resolve_platform("")
+        chosen = parse_source(text)
+        if not chosen:
+            await self.sender.send_message(
+                f"当前音源：{source_label(current)}\n"
+                "切换：@机器人 音源 网易云 / qq / b站，或 /source qq",
+                channel=channel,
+                area=area,
+            )
+            return
+        if chosen not in getattr(self.platforms, "available", {}):
+            await self.sender.send_message(
+                f"{source_label(chosen)}还没准备好。QQ 需要本机接口已启动；B 站需要在配置里打开。",
+                channel=channel,
+                area=area,
+            )
+            return
+        import web.web_player_config as cfg
+
+        _applied, errors, payload = cfg.apply_config_updates({"music": {"default_platform": chosen}})
+        if errors:
+            await self.sender.send_message("；".join(errors), channel=channel, area=area)
+            return
+        cfg.persist_config_updates(payload)
+        await self.sender.send_message(
+            f"音源已切换为{source_label(chosen)}。之后不带前缀的播放、添加、歌单和专辑都用它。",
+            channel=channel,
+            area=area,
+        )
+
+    def mark_voice_dropped(self) -> None:
+        """文字连接恢复后，马上再查一次语音频道，不用干等退避时间。"""
+        self._voice_rejoin_not_before = 0
+
+    async def _restore_voice_if_dropped(self) -> None:
+        """不是主动退出时，语音频道掉了就回到原来的房间。"""
+        if getattr(self, "_voice_rejoin_suppressed", False):
+            return
+        channel = self._voice_channel_id
+        area = self._voice_channel_area
+        if not channel or not area:
+            return
+        if time.time() < getattr(self, "_voice_rejoin_not_before", 0):
+            return
+        force = getattr(self, "_force_voice_check", False)
+        self._force_voice_check = False
+        if not force and await self._still_registered_in_voice(channel, area):
+            self._voice_rejoin_attempt = 0
+            return
+        attempt = getattr(self, "_voice_rejoin_attempt", 0)
+        delay = min(30, 2 * (2 ** min(attempt, 4)))
+        self._voice_rejoin_attempt = attempt + 1
+        self._voice_rejoin_not_before = time.time() + delay
+        logger.warning("语音频道连接中断，正在尝试回到原频道（第 %s 次）", attempt + 1)
+        result = await self._do_enter_voice(channel, area)
+        if "error" in result:
+            logger.warning("回到语音频道失败: %s", result.get("error"))
+            return
+        self._voice_rejoin_attempt = 0
+        self._voice_rejoin_not_before = 0
+        if getattr(self, "_hold_queue", False):
+            return
+        current = await self._get_queue(area).get_current()
+        if not current or not current.get("url"):
+            return
+        session = self._playback_snapshot_locked()
+        self._start_stream_task(current, session)
+
+    async def set_mode_by_name(self, text: str, channel: str, area: str) -> None:
+        mode = parse_play_mode(text)
+        q = self._get_queue(area)
+        if not mode:
+            current = await self.get_play_mode(queue=q)
+            await self.sender.send_message(
+                f"当前模式：{mode_label(current) if current in {PLAY_MODE_SEQ, PLAY_MODE_LOOP, PLAY_MODE_RANDOM, PLAY_MODE_RLOOP} else current}\n"
+                "可设置为：顺序、循环、随机、随机循环",
+                channel=channel,
+                area=area,
+            )
+            return
+        await self.set_play_mode(mode, queue=q)
+        await self.sender.send_message(f"播放模式已设为：{mode_label(mode)}", channel=channel, area=area)
+
+    async def play_collection(
+        self,
+        kind: str,
+        keyword: str,
+        channel: str,
+        area: str,
+        user: str,
+        how: str,
+    ) -> None:
+        """播放或追加歌单、专辑。随机模式下只打乱这次加进去的部分。"""
+        platform, clean = parse_platform_prefix(keyword)
+        platform = self.resolve_platform(platform)
+        if platform == "bilibili":
+            await self.sender.send_message("歌单和专辑目前只支持网易云和 QQ 音乐", channel=channel, area=area)
+            return
+        linked_platform, linked_id = collection_ref(clean, kind)
+        if linked_platform:
+            platform = linked_platform
+        provider = self.platforms.get(platform)
+        if provider is None:
+            await self.sender.send_message(f"错误: 未启用的音乐平台: {platform}", channel=channel, area=area)
+            return
+        collection_id = linked_id
+        title = clean
+        if not collection_id:
+            search = getattr(provider, "search_playlist" if kind == "playlist" else "search_album", None)
+            found = await search(clean) if search else None
+            if not found or not found.get("id"):
+                label = "歌单" if kind == "playlist" else "专辑"
+                await self.sender.send_message(f"没有找到{label}：{clean}", channel=channel, area=area)
+                return
+            collection_id = str(found["id"])
+            title = str(found.get("name") or clean)
+        fetch = getattr(provider, "get_playlist_songs" if kind == "playlist" else "get_album_songs", None)
+        songs = await fetch(collection_id) if fetch else []
+        songs = [song for song in songs if song.get("id") or song.get("mid")]
+        if not songs:
+            await self.sender.send_message("这个歌单或专辑里没有可以播放的歌", channel=channel, area=area)
+            return
+        truncated = len(songs) > _COLLECTION_LIMIT
+        songs = songs[:_COLLECTION_LIMIT]
+        mode = await self.get_play_mode(queue=self._get_queue(area))
+        if shuffles_new_batch(mode):
+            random.shuffle(songs)
+        built = [
+            self._build_song_data_from_platform_data(song, platform, song.get("id"), channel, area, user)
+            for song in songs
+        ]
+        playing = bool(self._voice_channel_id) and await self._is_playing(queue=self._get_queue(area))
+        if how == "replace" or not playing:
+            if not await self._check_and_enter_voice_channel(user, channel, area):
+                return
+        label = "歌单" if kind == "playlist" else "专辑"
+        if how == "replace":
+            async with self._playback_lock:
+                q = self._get_queue(area)
+                if self.voice and self.voice.available:
+                    await self.voice.stop_audio()
+                self._advance_playback_generation_locked()
+                self._play_start_time = 0
+                await q.clear_current()
+                await q.clear_queue()
+                self._hold_queue = False
+            first, rest = built[0], built[1:]
+            for song in rest:
+                await self._get_queue(area).add_to_queue(song)
+            result = await self._commit_song_request(first, prefix=title, how="cut")
+            extra = f"\n已载入 {len(built)} 首"
+            if truncated:
+                extra += f"，只取前 {_COLLECTION_LIMIT} 首"
+            await self.sender.send_message(result["message"] + extra, channel=channel, area=area)
+            return
+        if playing:
+            for song in built:
+                await self._get_queue(area).add_to_queue(song)
+            text = f"已把{label}《{title}》的 {len(built)} 首加到队列末尾"
+        else:
+            first, rest = built[0], built[1:]
+            for song in reversed(rest):
+                await self._get_queue(area).push_front(song)
+            result = await self._commit_song_request(first, prefix=title, how="cut")
+            text = result["message"] + f"\n已添加 {len(built)} 首"
+        if truncated:
+            text += f"\n只取前 {_COLLECTION_LIMIT} 首"
+        await self.sender.send_message(text, channel=channel, area=area)
 
     async def get_play_mode(self, queue=None) -> str:
         """读取当前播放模式；未配置时默认列表循环。"""
@@ -1101,8 +1371,17 @@ class MusicHandler(PlaybackMixin):
             return None, PLAY_MODE_STOP
         if natural_end and mode == PLAY_MODE_SINGLE and current_song:
             return copy.deepcopy(current_song), PLAY_MODE_SINGLE
-        if mode == PLAY_MODE_SHUFFLE and hasattr(q, "pop_random"):
+        if mode == PLAY_MODE_LOOP and natural_end and current_song:
+            await q.add_to_queue(current_song)
+        if mode == PLAY_MODE_RLOOP and natural_end and current_song:
+            await q.add_to_queue(current_song)
             return await q.pop_random(), "queue"
+        if mode in {PLAY_MODE_SHUFFLE, PLAY_MODE_RANDOM} and hasattr(q, "pop_random"):
+            song = await q.pop_random()
+            return (song, "queue") if song else (None, mode)
+        if mode == PLAY_MODE_RLOOP and hasattr(q, "pop_random"):
+            song = await q.pop_random()
+            return (song, "queue") if song else (None, mode)
         next_song = await q.play_next()
         if next_song:
             return next_song, "queue"
@@ -1314,7 +1593,7 @@ class MusicHandler(PlaybackMixin):
 
     async def _prepare_song_request(self, keyword: str, channel: str, area: str, user: str, platform: str = "") -> dict:
         """搜索歌曲并准备播放数据，但不提前进入语音频道。"""
-        resolved_platform = platform or _PLATFORM_NETEASE
+        resolved_platform = self.resolve_platform(platform)
         p = self.platforms.get(resolved_platform)
         if not p:
             return {"code": "error", "message": f"未知或未启用的音乐平台: {resolved_platform}"}
@@ -1483,8 +1762,8 @@ class MusicHandler(PlaybackMixin):
             text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
         return text
 
-    async def _commit_song_request(self, song_data: dict, prefix: str = "") -> dict:
-        """将已准备好的歌曲请求正式提交为播放或排队。prefix 用于自定义通知前缀。"""
+    async def _commit_song_request(self, song_data: dict, prefix: str = "", how: str = "queue") -> dict:
+        """提交一首歌。queue 沿用原来的排队；cut 立刻改播并保留队列；append 只追加。"""
         song_data = dict(song_data)
 
         area = str(song_data.get("area") or "").strip()
@@ -1511,10 +1790,16 @@ class MusicHandler(PlaybackMixin):
                 current_song = None
                 session = self._advance_playback_generation_locked()
 
-            if not is_playing and current_song is None and queue_length == 0:
+            start_now = how == "cut" or (how == "append" and not is_playing) or (
+                how == "queue" and not is_playing and current_song is None and queue_length == 0
+            )
+            if start_now:
                 song_data = dict(song_data)
                 play_uuid = str(uuid.uuid4())
                 song_data["play_uuid"] = play_uuid
+                if is_playing and self.voice and self.voice.available:
+                    await self.voice.stop_audio()
+                self._hold_queue = False
                 session = self._advance_playback_generation_locked()
                 await self._start_playing(song_data.get("duration_ms", 0), area=area)
                 await q.set_current(song_data)

@@ -1,4 +1,5 @@
 from app.infrastructure import PluginHost, build_bot_infrastructure
+from core.reply_context import use_private_reply
 from app.services.registry import build_command_service_registry
 from app.services.runtime import CommandRuntime
 from config import OOPZ_CONFIG
@@ -65,10 +66,10 @@ class CommandHandler:
         if not ctx.content:
             return
 
-        if await self.services.routing.message.reject_unauthorized_command(ctx):
-            return
-
-        await self.services.routing.command.route(ctx)
+        with use_private_reply(getattr(ctx, "private_reply_uid", "")):
+            if await self.services.routing.message.reject_unauthorized_command(ctx):
+                return
+            await self.services.routing.command.route(ctx)
 
     async def handle(self, msg_data: dict) -> None:
         await self.handle_message(msg_data)

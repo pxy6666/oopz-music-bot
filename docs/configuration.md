@@ -74,19 +74,20 @@ Copy-Item private_key.example.py private_key.py
 | `auto_start_path` | 相对于项目根目录的 API 目录名（如 `"NeteaseCloudMusicApi"`），留空则不自动启动 |
 | `audio_download_timeout` | 音频下载读超时（秒），弱网可调大（默认 `120`） |
 | `audio_download_retries` | 下载失败后重试次数（默认 `2`） |
-| `audio_quality` | 音质档位：`"standard"`（体积小/弱网友好）或 `"exhigh"`（音质更好） |
+| `audio_quality` | 下载档位：`"exhigh"`（极高，约 320kbps）或 `"standard"`（标准，体积小） |
 
 推流播放时会自动预加载队首下一首，减少切歌间隙与卡顿；弱网下可适当调大 `audio_download_timeout`、`audio_download_retries`，或使用 `audio_quality: "standard"`。
 
 ### QQ 音乐 (`QQ_MUSIC_CONFIG`)
 
-需自行部署 QQMusicApi 服务。
+机器人会启动项目里的 `qq-music-api`（`@sansenjian/qq-music-api`）。`auto_start` 为真且本机 3300 还没人占用时才会拉起。登录在 `http://127.0.0.1:8080/lobby` 扫码。
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用（默认 `False`） |
-| `base_url` | QQ 音乐 API 服务地址（默认 `http://localhost:3300`） |
-| `cookie` | 登录后的 Cookie（可选） |
+| `enabled` | 扫码成功后会写成 `True` |
+| `auto_start` | 启动机器人时拉起本机接口（默认 `True`） |
+| `base_url` | 接口地址（默认 `http://127.0.0.1:3300`） |
+| `cookie` | 登录页扫码成功后写入 |
 
 ### B 站音乐 (`BILIBILI_MUSIC_CONFIG`)
 
@@ -101,6 +102,7 @@ Copy-Item private_key.example.py private_key.py
 |--------|------|
 | `auto_play_enabled` | 队列播完后是否自动随机播放喜欢列表（默认 `True`） |
 | `default_volume` | 默认音量 0-100（默认 `50`） |
+| `default_platform` | 不写音源前缀时用哪个：`netease`、`qq`、`bilibili` |
 
 ### LOL 封号查询插件 (`config/plugins/lol_ban/config.json`)
 

@@ -472,6 +472,24 @@ window.agoraLeave = async () => {
 
 /* -------------------- Playback core -------------------- */
 
+// 默认 music_standard 是 48kHz 单声道 40kbps，歌会发糊。
+// high_quality_stereo 是 48kHz 立体声 192kbps。创建失败时退回默认档，避免整首播不出来。
+async function createMusicTrack(source) {
+  try {
+    return await AgoraRTC.createBufferSourceAudioTrack({
+      source,
+      cacheOnlineFile: false,
+      encoderConfig: "high_quality_stereo",
+    });
+  } catch (error) {
+    console.warn("[Agora] high_quality_stereo unavailable", error);
+    return await AgoraRTC.createBufferSourceAudioTrack({
+      source,
+      cacheOnlineFile: false,
+    });
+  }
+}
+
 async function publishTrackAsPlayback(localTrack, gen) {
   if (gen !== _playGen) {
     closeTrackSafely(localTrack);
@@ -523,10 +541,7 @@ window.agoraPlayAudio = async (url) => {
 
     await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
 
-    localTrack = await AgoraRTC.createBufferSourceAudioTrack({
-      source: url,
-      cacheOnlineFile: false,
-    });
+    localTrack = await createMusicTrack(url);
 
     return await publishTrackAsPlayback(localTrack, gen);
   } catch (e) {
@@ -568,10 +583,7 @@ window.agoraPlayLocal = async (base64Data, mimeType) => {
       return { ok: false, error: "superseded" };
     }
 
-    localTrack = await AgoraRTC.createBufferSourceAudioTrack({
-      source: audioBuffer,
-      cacheOnlineFile: false,
-    });
+    localTrack = await createMusicTrack(audioBuffer);
 
     return await publishTrackAsPlayback(localTrack, gen);
   } catch (e) {

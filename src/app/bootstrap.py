@@ -8,6 +8,7 @@ from app.lifecycle import (
     AppContextBuilder,
     BackgroundServiceRunner,
     NeteaseApiRuntime,
+    QqApiRuntime,
     ShutdownCoordinator,
     StartupResourceBuilder,
     TaskSupervisor,
@@ -22,6 +23,7 @@ class BotApplication:
 
     def __init__(self) -> None:
         self._netease_runtime = NeteaseApiRuntime()
+        self._qq_runtime = QqApiRuntime()
         self._background_services = BackgroundServiceRunner()
         self._context_builder = AppContextBuilder()
         self._shutdown = ShutdownCoordinator()
@@ -75,6 +77,7 @@ class BotApplication:
         try:
             await self._startup_resources.build()
             await self._netease_runtime.start()
+            await self._qq_runtime.start()
             self._context = await self._context_builder.build(self._supervisor)
             await self._background_services.start(self._context)
 
@@ -114,6 +117,7 @@ class BotApplication:
         await self._shutdown.stop(
             self._context,
             self._netease_runtime,
+            self._qq_runtime,
             self._background_services,
             self._supervisor,
         )

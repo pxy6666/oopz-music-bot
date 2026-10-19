@@ -18,6 +18,15 @@ class CommandRouter:
             await self._route_slash(ctx)
             return
 
+        if ctx.private_reply_uid:
+            await self._services.routing.mention.dispatch(
+                ctx.content,
+                ctx.channel,
+                ctx.area,
+                ctx.user,
+            )
+            return
+
         await self._route_chat(ctx)
 
     async def _route_mention(self, ctx: MessageContext) -> None:

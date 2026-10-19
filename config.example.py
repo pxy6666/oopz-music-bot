@@ -23,7 +23,7 @@ OOPZ_CONFIG = {
     "jwt_token": "",       # JWT Token（账号密码登录成功后自动写入）
 
     "default_area": "",    # 默认区域 ID
-    "default_channel": "", # 默认频道 ID
+    "default_channel": "", # 文字消息用的默认频道。启动不会因此进入语音频道
     "use_announcement_style": False,  # 全局默认是否使用公告样式（styleTags=IMPORTANT）；可在 admin 后台 → 域配置 → 公告样式 单独覆盖。bot 不是域主时一般保持 False，否则发公告会被服务端拒
 
     # Agora RTC（语音频道推流；Playwright 优先，Selenium 可回退）
@@ -91,14 +91,15 @@ NETEASE_CLOUD = {
     # 弱网优化（网络差、播放卡顿时可调大超时与重试，或使用 standard 音质）
     "audio_download_timeout": 120,         # 单次下载读超时(秒)
     "audio_download_retries": 2,           # 失败后重试次数
-    "audio_quality": "standard",           # standard=标准(体积小) / exhigh=较高音质
+    "audio_quality": "exhigh",             # standard=标准(体积小) / exhigh=极高音质(约 320kbps)
 }
 
-# QQ 音乐配置（需部署 QQMusicApi 服务）
+# QQ 音乐。接口在 qq-music-api 目录，启动机器人时自动拉起。
 QQ_MUSIC_CONFIG = {
     "enabled": False,
-    "base_url": "http://localhost:3300",   # QQ 音乐 API 服务地址
-    "cookie": "",                          # 可选，登录后的 Cookie
+    "auto_start": True,
+    "base_url": "http://127.0.0.1:3300",
+    "cookie": "",                          # 登录页扫码成功后写入
 }
 
 # B 站音乐配置
@@ -230,6 +231,7 @@ MESSAGE_STATS_CONFIG = {
 MUSIC_CONFIG = {
     "auto_play_enabled": True,          # 队列播完是否自动随机播放喜欢列表
     "default_volume": 50,               # 默认音量 (0-100)
+    "default_platform": "netease",      # 不写音源前缀时用哪个：netease / qq / bilibili
 }
 
 # 命令冷却配置

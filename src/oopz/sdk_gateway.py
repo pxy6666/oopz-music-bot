@@ -280,6 +280,18 @@ class AsyncOopzGateway:
         auto_recall: bool | None = None,
         **kwargs: Any,
     ) -> GatewayResponse:
+        from core.reply_context import current_private_reply_uid
+
+        private_uid = current_private_reply_uid()
+        if private_uid:
+            return GatewayResponse(
+                await self.send_private_message(
+                    private_uid,
+                    text,
+                    attachments=kwargs.get("attachments"),
+                    channel=None,
+                )
+            )
         area = self._default_area(area)
         channel = self._default_channel(channel)
         try:

@@ -104,7 +104,7 @@ class MentionCommandRouter:
             (mention_of("search"), lambda keyword: self._actions.community.search_members(keyword, channel, area, user), "用法: @bot 搜索用户名"),
             # help 的全部别名见 _exact_rules；仅「帮助/help」接受主题参数，故此处保留字面量子集
             (("帮助", "help"), lambda topic: self._actions.interaction.show_help(channel, area, user, topic), "用法: @bot 帮助 音乐"),
-            (mention_of("enter"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: @bot 进入频道 <频道ID>"),
+            (mention_of("enter"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: @bot 进入 房间名或频道ID"),
             (mention_of("plugin_load"), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: @bot 加载插件 <名>"),
             (mention_of("plugin_unload"), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: @bot 卸载插件 <名>"),
             (mention_of("plugin_reload"), lambda name: self._actions.plugins.reload_plugin_config(name, channel, area), "用法: @bot 重载插件 <名>"),

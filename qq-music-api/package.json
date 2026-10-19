@@ -1,0 +1,8 @@
+{
+  "name": "oopz-qq-music-api",
+  "private": true,
+  "description": "随 OOPZ 机器人启动的 QQ 音乐本地接口",
+  "dependencies": {
+    "@sansenjian/qq-music-api": "~2.4.0"
+  }
+}

@@ -115,10 +115,10 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
     },
     "netease": {
         "base_url": {"type": "str", "max_len": 300, "default": "http://localhost:3000"},
-        "cookie": {"type": "str", "max_len": 6000, "sensitive": True, "expose_in_admin": True, "default": ""},
+        "cookie": {"type": "str", "max_len": 12000, "sensitive": True, "expose_in_admin": True, "default": ""},
         "audio_download_timeout": {"type": "int", "min": 5, "max": 600, "default": 120},
         "audio_download_retries": {"type": "int", "min": 0, "max": 10, "default": 2},
-        "audio_quality": {"type": "str", "max_len": 20, "default": "standard"},
+        "audio_quality": {"type": "str", "max_len": 20, "default": "exhigh"},
     },
     "redis": {
         "host": {"type": "str", "max_len": 200, "default": "127.0.0.1"},
@@ -143,6 +143,7 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
     "music": {
         "auto_play_enabled": {"type": "bool", "default": True},
         "default_volume": {"type": "int", "min": 0, "max": 100, "default": 50},
+        "default_platform": {"type": "str", "max_len": 20, "default": "netease"},
     },
     "command_cooldown": {
         "enabled": {"type": "bool", "default": False},
@@ -151,8 +152,9 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
     },
     "qq_music": {
         "enabled": {"type": "bool", "default": False},
-        "base_url": {"type": "str", "max_len": 300, "default": "http://localhost:3300"},
-        "cookie": {"type": "str", "max_len": 3000, "sensitive": True, "expose_in_admin": True, "default": ""},
+        "auto_start": {"type": "bool", "default": True},
+        "base_url": {"type": "str", "max_len": 300, "default": "http://127.0.0.1:3300"},
+        "cookie": {"type": "str", "max_len": 12000, "sensitive": True, "expose_in_admin": True, "default": ""},
     },
     "bilibili_music": {
         "enabled": {"type": "bool", "default": False},

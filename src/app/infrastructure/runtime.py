@@ -48,6 +48,13 @@ class MusicGateway:
     def __getattr__(self, name: str):
         return getattr(self.handler, name)
 
+    def note_connection_lost(self) -> None:
+        """文字连接重连后，如果已经进过语音频道，下一轮再确认成员身份。"""
+        if self._handler is not None:
+            mark = getattr(self._handler, "mark_voice_dropped", None)
+            if callable(mark):
+                mark()
+
     def refresh_platforms(self) -> dict:
         """配置热更新时刷新已创建的音乐平台实例。"""
         if self._handler is None:

@@ -201,6 +201,7 @@ class PlaybackMixin:
             if isinstance(ended, asyncio.Event):
                 ended.clear()
             try:
+                await self._restore_voice_if_dropped()
                 area = self._resolve_background_area()
                 if not area:
                     try:
@@ -233,7 +234,7 @@ class PlaybackMixin:
                         queue = self._get_queue(area)
                         is_playing = await self._is_playing(queue=queue)
 
-                    if queue is not None and not is_playing:
+                    if queue is not None and not is_playing and not getattr(self, "_hold_queue", False):
                         current = await queue.get_current()
                         finished_song = None
 
@@ -297,10 +298,7 @@ class PlaybackMixin:
                                         logger.info("自动播放: %s", next_song.get("name"))
 
                         elif queue_length == 0 and current is None and session.channel:
-                            grace = time.time() - self._voice_enter_time < 30
-                            if not grace:
-                                logger.info("队列已空，Bot 自动退出语音频道")
-                                await self._leave_current_voice_channel()
+                            logger.debug("队列已空，机器人留在语音频道")
 
                     if queue is not None:
                         await self._release_web_link_if_needed(queue=queue)
@@ -389,14 +387,23 @@ class PlaybackMixin:
     ) -> None:
         """只用不可变会话快照启动受监管的异步推流任务。"""
         self._create_task(
-            self._stream_to_voice_channel(
-                str(song["url"]),
-                str(song.get("name") or "music"),
-                session,
-                str(song.get("song_id") or ""),
-                str(song.get("platform") or "netease"),
-            ),
+            self._stream_resolved_song(song, session),
             name=f"music-stream-{session.generation}",
+        )
+
+    async def _stream_resolved_song(self, song: dict, session: PlaybackSessionSnapshot) -> None:
+        """歌单里的歌先不拿链接，真正要播时再向音源要。"""
+        if not song.get("url"):
+            fill = getattr(self, "_fill_song_url", None)
+            if not callable(fill) or not await fill(song):
+                logger.warning("没有拿到播放链接: %s", song.get("name"))
+                return
+        await self._stream_to_voice_channel(
+            str(song.get("url") or ""),
+            str(song.get("name") or "music"),
+            session,
+            str(song.get("song_id") or ""),
+            str(song.get("platform") or "netease"),
         )
 
     async def _stream_to_voice_channel(

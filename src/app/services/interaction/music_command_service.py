@@ -17,12 +17,17 @@ class MusicCommandService:
     def _interactive_enabled(self) -> bool:
         return getattr(self._music, "supports_interactive_selection", False) is True
 
+    def _platform(self, explicit: str) -> str:
+        if explicit:
+            return explicit
+        resolver = getattr(self._music, "resolve_platform", None)
+        if callable(resolver):
+            return str(resolver(""))
+        return "netease"
+
     async def _play_direct(self, keyword: str, channel: str, area: str, user: str) -> None:
         platform, clean_kw = parse_platform_prefix(keyword)
-        if platform:
-            await self._music.play_song(clean_kw, platform, channel, area, user)
-        else:
-            await self._music.play_netease(clean_kw, channel, area, user)
+        await self._music.play_song(clean_kw, self._platform(platform), channel, area, user)
 
     @staticmethod
     def _is_confident_match(keyword: str, results: list[dict]) -> bool:
@@ -74,7 +79,7 @@ class MusicCommandService:
     async def _play(self, keyword: str, channel: str, area: str, user: str) -> None:
         """解析平台前缀后调用多平台点歌。"""
         platform, clean_kw = parse_platform_prefix(keyword)
-        resolved_platform = platform or "netease"
+        resolved_platform = self._platform(platform)
         if not self._interactive_enabled():
             await self._play_direct(keyword, channel, area, user)
             return
@@ -105,7 +110,7 @@ class MusicCommandService:
             await self._sender.send_message("用法: @bot 搜歌 <关键词>  或  /songsearch <关键词>", channel=channel, area=area)
             return
         platform, clean_kw = parse_platform_prefix(keyword)
-        resolved_platform = platform or "netease"
+        resolved_platform = self._platform(platform)
         if not self._interactive_enabled():
             await self._play_direct(keyword, channel, area, user)
             return
@@ -129,6 +134,43 @@ class MusicCommandService:
 
     async def handle_mention(self, text: str, channel: str, area: str, user: str) -> bool:
         """处理 @bot 中文音乐指令。"""
+        if text == "音源" or text.startswith("音源"):
+            await self._music.set_source(text[2:].strip(), channel, area)
+            return True
+        if text in ("退出", "离开", "退出频道", "离开频道"):
+            await self._music.leave_playback(channel, area)
+            return True
+        if text == "模式" or text.startswith("模式"):
+            await self._music.set_mode_by_name(text[2:].strip() if text.startswith("模式") else "", channel, area)
+            return True
+        for kind, prefixes in (
+            ("playlist", ("播放歌单", "歌单")),
+            ("album", ("播放专辑", "专辑")),
+        ):
+            for prefix in prefixes:
+                if text.startswith(prefix):
+                    await self._music.play_collection(
+                        kind, text[len(prefix):].strip(), channel, area, user, "replace"
+                    )
+                    return True
+        for kind, prefixes in (
+            ("playlist", ("添加歌单",)),
+            ("album", ("添加专辑",)),
+        ):
+            for prefix in prefixes:
+                if text.startswith(prefix):
+                    await self._music.play_collection(
+                        kind, text[len(prefix):].strip(), channel, area, user, "append"
+                    )
+                    return True
+        if text == "添加" or text.startswith("添加"):
+            keyword = text[2:].strip() if text.startswith("添加") else ""
+            if not keyword:
+                await self._sender.send_message("用法: @bot 添加 歌名", channel=channel, area=area)
+            else:
+                platform, clean = parse_platform_prefix(keyword)
+                await self._music.add_song(clean, self._platform(platform), channel, area, user)
+            return True
         for prefix in ("播放", "放", "点播", "来一首", "唱"):
             if text.startswith(prefix):
                 keyword = text[len(prefix):].strip()
@@ -182,6 +224,32 @@ class MusicCommandService:
         user: str,
     ) -> bool:
         """处理音乐相关斜杠命令。"""
+        if command == "/source":
+            await self._music.set_source(" ".join(parts[1:]).strip(), channel, area)
+            return True
+        if command in ("/leave", "/quit"):
+            await self._music.leave_playback(channel, area)
+            return True
+        if command == "/mode":
+            await self._music.set_mode_by_name(subcommand or arg or "", channel, area)
+            return True
+        if command in ("/playlist", "/album", "/addplaylist", "/addalbum"):
+            kind = "album" if "album" in command else "playlist"
+            how = "append" if command.startswith("/add") else "replace"
+            keyword = " ".join(parts[1:]).strip()
+            if not keyword:
+                await self._sender.send_message(f"用法: {command} 名字、编号或链接", channel=channel, area=area)
+            else:
+                await self._music.play_collection(kind, keyword, channel, area, user, how)
+            return True
+        if command == "/add":
+            keyword = " ".join(parts[1:]).strip()
+            if not keyword:
+                await self._sender.send_message("用法: /add 歌名", channel=channel, area=area)
+            else:
+                platform, clean = parse_platform_prefix(keyword)
+                await self._music.add_song(clean, self._platform(platform), channel, area, user)
+            return True
         if command in ("/bf", "/play"):
             if len(parts) < 2:
                 await self._sender.send_message(
@@ -213,7 +281,7 @@ class MusicCommandService:
                 if self._interactive_enabled():
                     await self._play(arg, channel, area, user)
                 else:
-                    await self._music.play_netease(arg, channel, area, user)
+                    await self._play_direct(arg, channel, area, user)
             else:
                 await self._sender.send_message("用法: /yun play 歌曲名", channel=channel, area=area)
             return True
